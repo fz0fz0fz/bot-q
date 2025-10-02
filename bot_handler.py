@@ -1,7 +1,15 @@
 import requests
 import logging
 import re
-from config import WASENDER_API_KEY, WASENDER_BASE_URL, ADMIN_PHONE
+from config import WASENDER_API_KEY, 
+WASENDER_BASE_URL, ADMIN_PHONE
+
+
+
+class BotHandler:
+    def process_message(self, user_id, message):
+        # يقبل أي رقم ويرد عليه برسالة عادية
+        return f"تم استقبال رسالتك: {message}"
 
 logger = logging.getLogger(__name__)
 
