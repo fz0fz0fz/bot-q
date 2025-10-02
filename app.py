@@ -1,6 +1,22 @@
 import os
 import time
 import logging
+...
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 10000))
+    logger.info(f"🚀 Starting Qurain Simple Bot on port {port}")
+    app.run(host="0.0.0.0", port=port, debug=False)
+Tool Call
+Function Name:
+Write
+Arguments:
+file_path:
+/home/user/app.py
+content:
+import os
+import time
+import logging
 from flask import Flask, request, jsonify
 from config import ADMIN_PHONE, SERVICE_MESSAGES
 from send_utils import send_message
@@ -17,6 +33,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# قاموس لتتبع حالة كل مستخدم
+user_states = {}
 
 @app.route("/", methods=["GET"])
 def index():
@@ -69,23 +88,62 @@ def webhook():
 
         phone = user_id.split("@")[0] if "@" in user_id else user_id
 
-        # هل هي رسالة رقم خدمة؟
+        # التحقق من حالة المستخدم الحالية
+        current_state = user_states.get(user_id, "initial")
+
+        # إذا كانت رسالة رقم خدمة جديد
         if message in SERVICE_MESSAGES:
+            # تحديث حالة المستخدم
+            user_states[user_id] = f"waiting_for_{message}"
+            
             response = SERVICE_MESSAGES[message]["request_message"]
             send_result = send_message(phone, response)
             if send_result.get("success"):
-                logger.info(f"✅ Response sent to {phone}")
+                logger.info(f"✅ Service request sent to {phone} for service {message}")
             else:
-                logger.error(f"❌ Failed to send response: {send_result}")
-        else:
-            # رسالة تفاصيل: أرسلها للإدارة وارسل للعميل تأكيد
-            send_result_admin = send_message(ADMIN_PHONE, f"رسالة جديدة من العميل ({user_id}):\n{message}")
-            confirmation_msg = "✅ تم تحويل رسالتك للإدارة وسيتم إضافتها في أقرب وقت. شكرًا لك!"
+                logger.error(f"❌ Failed to send service request: {send_result}")
+        
+        # إذا كان المستخدم في انتظار بيانات خدمة معينة
+        elif current_state.startswith("waiting_for_"):
+            service_number = current_state.replace("waiting_for_", "")
+            service_name = SERVICE_MESSAGES.get(service_number, {}).get("name", "خدمة غير معروفة")
+            
+            # إرسال البيانات للإدارة
+            admin_message = f"📋 بيانات جديدة - {service_name}\n"
+            admin_message += f"من العميل: {user_id}\n"
+            admin_message += f"رقم الخدمة: {service_number}\n"
+            admin_message += f"البيانات:\n{message}"
+            
+            send_result_admin = send_message(ADMIN_PHONE, admin_message)
+            
+            # إرسال تأكيد للعميل
+            confirmation_msg = f"✅ تم استلام بياناتك لخدمة {service_name} وتم تحويلها للإدارة.\nسيتم إضافتها في أقرب وقت. شكرًا لك!"
             send_result_user = send_message(phone, confirmation_msg)
+            
+            # إعادة تعيين حالة المستخدم
+            user_states[user_id] = "initial"
+            
             if send_result_user.get("success"):
-                logger.info(f"✅ Confirmation sent to {phone}")
+                logger.info(f"✅ Service data confirmation sent to {phone} for service {service_number}")
             else:
                 logger.error(f"❌ Failed to send confirmation: {send_result_user}")
+        
+        # إذا لم تكن رسالة خدمة ولا ينتظر بيانات خدمة
+        else:
+            # تجاهل الرسالة أو إرسال رسالة توضيحية (اختياري)
+            logger.info(f"🔕 Message ignored from {phone}: {message} (not a service request and user not waiting for data)")
+            
+            # يمكنك إرسال رسالة توضيحية للمستخدم (اختياريه)
+            help_message = (
+                "مرحباً بك! 👋\n"
+                "للحصول على خدماتنا، يرجى إرسال أحد الأرقام التالية:\n\n"
+                "40 - للأسر المنتجة 🌟\n"
+                "50 - للسائقين 🚗\n"
+                "60 - للعمال 👷\n"
+                "70 - للتأجير 📦\n"
+                "100 - للاقتراحات والملاحظات 💡"
+            )
+            send_message(phone, help_message)
 
         return jsonify({"status": "processed"}), 200
 
@@ -106,3 +164,5 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     logger.info(f"🚀 Starting Qurain Simple Bot on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
+Response
+Created file /home/user/app.py (5429 characters)
