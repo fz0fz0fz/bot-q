@@ -1,148 +1,107 @@
+
+"""
+بوت واتساب القرين المبسط - يعمل مع WhatsAuto
+فقط معالجة أرقام محددة وإرسال للإدمن
+"""
+import os
+import time
+import logging
 from flask import Flask, request, jsonify
-import requests
+
+from config import ADMIN_PHONE, WASENDER_API_KEY
+from bot_handler import BotHandler
+from send_utils import send_message
+
+# إعداد نظام السجلات
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('bot.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+bot_handler = BotHandler()
 
-# رقمك لاستلام البيانات
-YOUR_PHONE_NUMBER = "966503813344"
-
-# حفظ حالة المستخدم مؤقتاً (ذاكرة مؤقتة فقط)
-user_states = {}
-user_data = {}
-
-# دالة إرسال رسالة للمشرف
-def send_to_admin(message):
-    try:
-        requests.post("https://api.wasender.io/sendMessage", json={
-            "to": YOUR_PHONE_NUMBER,
-            "message": message
-        })
-    except Exception as e:
-        print("خطأ في إرسال الرسالة للمشرف:", e)
-
-# الخريطة لتحديد نوع العملية
-PROCESS_MAP = {
-    "55": "add_worker",
-    "88": "add_driver",
-    "77": "add_shop",
-    "90": "add_rent"
-}
-
-def is_valid_phone(phone):
-    # تحقق بسيط من رقم الهاتف السعودي
-    return phone.isdigit() and (len(phone) == 9 or (len(phone) == 10 and phone.startswith('0')))
+@app.route("/", methods=["GET"])
+def index():
+    """صفحة الحالة الرئيسية"""
+    return {
+        "status": "active",
+        "service": "🚀 Qurain Bot - Simple Version",
+        "timestamp": time.time(),
+        "description": "Bot works with WhatsAuto for main menu"
+    }
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
-    user_id = data.get("from")
-    message = data.get("message", "").strip()
+    """معالج الرسائل الرئيسي"""
+    try:
+        # استخراج البيانات
+        data = request.get_json(force=True)
+        if not data:
+            return jsonify({"error": "No data"}), 400
 
-    # حالة جديدة للمستخدم
-    if user_id not in user_states:
-        user_states[user_id] = None
-        user_data[user_id] = {}
+        # اختبار الويب هوك
+        if data.get("event") == "webhook.test":
+            logger.info("📩 Webhook test received")
+            return jsonify({"status": "test_ok"}), 200
 
-    # إذا لم يكن المستخدم في عملية، نبدأ العملية
-    if user_states[user_id] is None:
-        if message in PROCESS_MAP:
-            user_states[user_id] = PROCESS_MAP[message]
-            user_data[user_id] = {}
-            # الرد حسب العملية
-            if message == "55":
-                reply = "أدخل اسم العامل:"
-            elif message == "88":
-                reply = "أدخل اسم السائق:"
-            elif message == "77":
-                reply = "أدخل اسم المحل:"
-            elif message == "90":
-                reply = "أدخل اسم البضاعة للتأجير:"
-            return jsonify({"reply": reply})
+        # استخراج بيانات الرسالة
+        payload = data.get("data") or data
+        messages = payload.get("messages")
+        
+        if not messages:
+            return jsonify({"error": "No messages"}), 400
 
-        # أي رسالة أخرى خارج الأرقام المخصصة
-        return jsonify({"reply": "مرحبًا! أرسل رقم العملية:\n55 لإضافة عامل\n88 لإضافة سائق\n77 لإضافة محل\n90 لإضافة بضاعة للتأجير"}), 200
+        key = messages.get("key", {})
+        user_id = key.get("remoteJid")
+        from_me = key.get("fromMe", False)
 
-    # إذا المستخدم في عملية
-    process = user_states[user_id]
+        # تجاهل الرسائل من البوت نفسه
+        if from_me:
+            return jsonify({"status": "ignored"}), 200
 
-    # إضافة عامل
-    if process == "add_worker":
-        if "name" not in user_data[user_id]:
-            user_data[user_id]["name"] = message
-            return jsonify({"reply": "أدخل مهنة العامل:"})
-        elif "job" not in user_data[user_id]:
-            user_data[user_id]["job"] = message
-            return jsonify({"reply": "أدخل رقم العامل (بدون رمز الدولة):"})
-        elif "phone" not in user_data[user_id]:
-            if not is_valid_phone(message):
-                return jsonify({"reply": "رقم الهاتف غير صحيح، يرجى إدخاله بشكل صحيح (مثال: 501234567 أو 0501234567)"})
-            user_data[user_id]["phone"] = message
-            info = f"طلب إضافة عامل جديد:\nالاسم: {user_data[user_id]['name']}\nالمهنة: {user_data[user_id]['job']}\nرقم الهاتف: {user_data[user_id]['phone']}"
-            send_to_admin(info)
-            user_states[user_id] = None
-            user_data[user_id] = {}
-            return jsonify({"reply": "تم حفظ طلبك وارساله بنجاح للمشرف لإضافته في أقرب وقت ممكن، شكرا لك 🙏"})
+        message_obj = messages.get("message", {})
+        message = message_obj.get("conversation", "").strip()
 
-    # إضافة سائق
-    elif process == "add_driver":
-        if "name" not in user_data[user_id]:
-            user_data[user_id]["name"] = message
-            return jsonify({"reply": "أدخل الخدمة المقدمة (نقل مدرسي، مشاوير، توصيل طلبات):"})
-        elif "services" not in user_data[user_id]:
-            user_data[user_id]["services"] = message
-            return jsonify({"reply": "أدخل وصف وشروط الخدمة (مثلاً: نقل من كذا إلى كذا):"})
-        elif "details" not in user_data[user_id]:
-            user_data[user_id]["details"] = message
-            return jsonify({"reply": "أدخل رقم هاتفك (بدون رمز الدولة):"})
-        elif "phone" not in user_data[user_id]:
-            if not is_valid_phone(message):
-                return jsonify({"reply": "رقم الهاتف غير صحيح، يرجى إدخاله بشكل صحيح (مثال: 501234567 أو 0501234567)"})
-            user_data[user_id]["phone"] = message
-            info = f"طلب إضافة سائق جديد:\nالاسم: {user_data[user_id]['name']}\nالخدمات: {user_data[user_id]['services']}\nالتفاصيل: {user_data[user_id]['details']}\nرقم الهاتف: {user_data[user_id]['phone']}"
-            send_to_admin(info)
-            user_states[user_id] = None
-            user_data[user_id] = {}
-            return jsonify({"reply": "تم حفظ طلبك وارساله للمشرف لإضافته في أقرب وقت ممكن، شكرا لك 🙏"})
+        if not user_id or not message:
+            return jsonify({"error": "Invalid message data"}), 400
 
+        logger.info(f"Message from {user_id}: {message}")
 
-    # إضافة محل
-    elif process == "add_shop":
-        if "name" not in user_data[user_id]:
-            user_data[user_id]["name"] = message
-            return jsonify({"reply": "أدخل نوع المحل:"})
-        elif "type" not in user_data[user_id]:
-            user_data[user_id]["type"] = message
-            return jsonify({"reply": "أدخل رقم هاتف المحل (بدون رمز الدولة):"})
-        elif "phone" not in user_data[user_id]:
-            if not is_valid_phone(message):
-                return jsonify({"reply": "رقم الهاتف غير صحيح، يرجى إدخاله بشكل صحيح (مثال: 501234567 أو 0501234567)"})
-            user_data[user_id]["phone"] = message
-            info = f"طلب إضافة محل جديد:\nالاسم: {user_data[user_id]['name']}\nالنوع: {user_data[user_id]['type']}\nرقم الهاتف: {user_data[user_id]['phone']}"
-            send_to_admin(info)
-            user_states[user_id] = None
-            user_data[user_id] = {}
-            return jsonify({"reply": "تم حفظ طلبك وارساله للمشرف لإضافته في أقرب وقت ممكن، شكرا لك 🙏"})
+        # معالجة الرسالة
+        response = bot_handler.process_message(user_id, message)
 
-    # إضافة بضاعة تأجير
-    elif process == "add_rent":
-        if "item" not in user_data[user_id]:
-            user_data[user_id]["item"] = message
-            return jsonify({"reply": "أدخل وصف البضاعة والشروط:"})
-        elif "details" not in user_data[user_id]:
-            user_data[user_id]["details"] = message
-            return jsonify({"reply": "أدخل رقم هاتفك (بدون رمز الدولة):"})
-        elif "phone" not in user_data[user_id]:
-            if not is_valid_phone(message):
-                return jsonify({"reply": "رقم الهاتف غير صحيح، يرجى إدخاله بشكل صحيح (مثال: 501234567 أو 0501234567)"})
-            user_data[user_id]["phone"] = message
-            info = f"طلب إضافة بضاعة للتأجير:\nالبضاعة: {user_data[user_id]['item']}\nالوصف والشروط: {user_data[user_id]['details']}\nرقم الهاتف: {user_data[user_id]['phone']}"
-            send_to_admin(info)
-            user_states[user_id] = None
-            user_data[user_id] = {}
-            return jsonify({"reply": "تم حفظ طلبك وارساله للمشرف لإضافته في أقرب وقت ممكن، شكرا لك 🙏"})
+        # إرسال الرد إذا كان موجوداً
+        if response:
+            phone = user_id.split("@")[0] if "@" in user_id else user_id
+            send_result = send_message(phone, response)
+            
+            if send_result.get("success"):
+                logger.info(f"✅ Response sent to {phone}")
+            else:
+                logger.error(f"❌ Failed to send response: {send_result}")
 
+        return jsonify({"status": "processed"}), 200
 
-    return jsonify({"reply": "حدث خطأ غير متوقع. يرجى إعادة المحاولة."}), 200
+    except Exception as e:
+        logger.error(f"Webhook error: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Endpoint not found"}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"Internal server error: {error}")
+    return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == "__main__":
-    app.run(port=5000)
+    port = int(os.environ.get("PORT", 10000))
+    logger.info(f"🚀 Starting Qurain Simple Bot on port {port}")
+    app.run(host="0.0.0.0", port=port, debug=False)
