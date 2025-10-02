@@ -44,7 +44,8 @@ class UserStateManager:
         user_data = self.user_states.get(user_id)
         return user_data.get("service_number") if user_data else None
     
-    def reset_user_state(self, user_id: str):
+   
+ def reset_user_state(self, user_id: str):
         """إعادة تعيين حالة المستخدم"""
         if user_id in self.user_states:
             del self.user_states[user_id]
