@@ -1,19 +1,4 @@
-import os
-import time
-import logging
-...
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    logger.info(f"🚀 Starting Qurain Enhanced Bot on port {port}")
-    app.run(host="0.0.0.0", port=port, debug=False)
-Tool Call
-Function Name:
-Write
-Arguments:
-file_path:
-/home/user/app_improved.py
-content:
 import os
 import time
 import logging
@@ -224,5 +209,3 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     logger.info(f"🚀 Starting Qurain Enhanced Bot on port {port}")
     app.run(host="0.0.0.0", port=port, debug=False)
-Response
-Created file /home/user/app_improved.py (7204 characters)
