@@ -2,12 +2,9 @@ import os
 import time
 import logging
 from flask import Flask, request, jsonify
-
-from config import ADMIN_PHONE, WASENDER_API_KEY
-from bot_handler import BotHandler
+from config import ADMIN_PHONE, SERVICE_MESSAGES
 from send_utils import send_message
 
-# إعداد نظام السجلات
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -19,11 +16,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-bot_handler = BotHandler()
 
 @app.route("/", methods=["GET"])
 def index():
-    """صفحة الحالة الرئيسية"""
     return {
         "status": "active",
         "service": "🚀 Qurain Bot - Simple Version",
@@ -33,22 +28,17 @@ def index():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    """معالج الرسائل الرئيسي"""
     try:
-        # استخراج البيانات
         data = request.get_json(force=True)
         if not data:
             return jsonify({"error": "No data"}), 400
 
-        # اختبار الويب هوك
         if data.get("event") == "webhook.test":
             logger.info("📩 Webhook test received")
             return jsonify({"status": "test_ok"}), 200
 
-        # استخراج بيانات الرسالة
         payload = data.get("data") or data
         messages = payload.get("messages")
-
         if not messages:
             return jsonify({"error": "No messages"}), 400
 
@@ -56,23 +46,43 @@ def webhook():
         user_id = key.get("remoteJid")
         from_me = key.get("fromMe", False)
 
-        # تجاهل الرسائل من البوت نفسه
         if from_me:
             return jsonify({"status": "ignored"}), 200
 
         message_obj = messages.get("message", {})
-        message = message_obj.get("conversation", "").strip() or \
-                  message_obj.get("extendedTextMessage", {}).get("text", "").strip()
+        message = message_obj.get("conversation", "").strip()
 
         if not user_id or not message:
             return jsonify({"error": "Invalid message data"}), 400
 
         logger.info(f"Message from {user_id}: {message}")
 
-        # معالجة الرسالة
-        response = bot_handler.process_message(user_id, message)
+        # الرد حسب رقم الخدمة
+        response = None
+        if message in SERVICE_MESSAGES:
+            response = SERVICE_MESSAGES[message]["request_message"]
+        else:
+            # أي رقم غير مدعوم يرد عليه WhatsAuto فقط ولا يرد البوت
+            return jsonify({"status": "ignored"}), 200
 
+        # إذا أرسل العميل التفاصيل بعد رقم الخدمة (مثلاً بعد ٦٠ يرسل كل البيانات دفعة واحدة)
+        # نحدد ذلك بأن الرسالة ليست رقم خدمة، بل نص طويل (يتم تحويله للإدارة)
+        # نتحقق هل الرسالة السابقة كانت رقم من الخدمة (يمكنك تحسين ذلك لاحقًا بحفظ آخر حالة للمستخدم في الذاكرة إذا أردت).
+        # هنا سنفترض أن المستخدم يرسل الرقم ثم مباشرة التفاصيل في رسالة أخرى.
 
+        # إذا كانت الرسالة نص طويل وليست رقم خدمة، نرسلها للإدارة
+        if response is None and len(message) > 1:
+            # أرسل للإدارة
+            send_result = send_message(ADMIN_PHONE, f"رسالة جديدة من العميل ({user_id}):\n{message}")
+            response = "✅ تم تحويل رسالتك للإدارة وسيتم إضافتها في أقرب وقت. شكرًا لك!"
+
+        if response:
+            phone = user_id.split("@")[0] if "@" in user_id else user_id
+            send_result = send_message(phone, response)
+            if send_result.get("success"):
+                logger.info(f"✅ Response sent to {phone}")
+            else:
+                logger.error(f"❌ Failed to send response: {send_result}")
 
         return jsonify({"status": "processed"}), 200
 
