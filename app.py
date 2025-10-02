@@ -1,8 +1,3 @@
-
-"""
-بوت واتساب القرين المبسط - يعمل مع WhatsAuto
-فقط معالجة أرقام محددة وإرسال للإدمن
-"""
 import os
 import time
 import logging
@@ -53,7 +48,7 @@ def webhook():
         # استخراج بيانات الرسالة
         payload = data.get("data") or data
         messages = payload.get("messages")
-        
+
         if not messages:
             return jsonify({"error": "No messages"}), 400
 
@@ -66,7 +61,8 @@ def webhook():
             return jsonify({"status": "ignored"}), 200
 
         message_obj = messages.get("message", {})
-        message = message_obj.get("conversation", "").strip()
+        message = message_obj.get("conversation", "").strip() or \
+                  message_obj.get("extendedTextMessage", {}).get("text", "").strip()
 
         if not user_id or not message:
             return jsonify({"error": "Invalid message data"}), 400
@@ -76,15 +72,7 @@ def webhook():
         # معالجة الرسالة
         response = bot_handler.process_message(user_id, message)
 
-        # إرسال الرد إذا كان موجوداً
-        if response:
-            phone = user_id.split("@")[0] if "@" in user_id else user_id
-            send_result = send_message(phone, response)
-            
-            if send_result.get("success"):
-                logger.info(f"✅ Response sent to {phone}")
-            else:
-                logger.error(f"❌ Failed to send response: {send_result}")
+
 
         return jsonify({"status": "processed"}), 200
 
