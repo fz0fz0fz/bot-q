@@ -1,21 +1,24 @@
 from flask import Flask, request, jsonify
+import requests
 
 app = Flask(__name__)
 
 # رقمك لاستلام البيانات
 YOUR_PHONE_NUMBER = "966503813344"
 
-# حفظ حالة المستخدم مؤقتاً
+# حفظ حالة المستخدم مؤقتاً (ذاكرة مؤقتة فقط)
 user_states = {}
 user_data = {}
 
-# دوال إرسال رسالة للمشرف (يمكن تعديلها حسب Wasender أو أي طريقة)
+# دالة إرسال رسالة للمشرف
 def send_to_admin(message):
-    import requests
-    requests.post("https://api.wasender.io/sendMessage", json={
-        "to": YOUR_PHONE_NUMBER,
-        "message": message
-    })
+    try:
+        requests.post("https://api.wasender.io/sendMessage", json={
+            "to": YOUR_PHONE_NUMBER,
+            "message": message
+        })
+    except Exception as e:
+        print("خطأ في إرسال الرسالة للمشرف:", e)
 
 # الخريطة لتحديد نوع العملية
 PROCESS_MAP = {
@@ -25,11 +28,15 @@ PROCESS_MAP = {
     "90": "add_rent"
 }
 
+def is_valid_phone(phone):
+    # تحقق بسيط من رقم الهاتف السعودي
+    return phone.isdigit() and (len(phone) == 9 or (len(phone) == 10 and phone.startswith('0')))
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
     user_id = data.get("from")
-    message = data.get("message").strip()
+    message = data.get("message", "").strip()
 
     # حالة جديدة للمستخدم
     if user_id not in user_states:
@@ -43,17 +50,17 @@ def webhook():
             user_data[user_id] = {}
             # الرد حسب العملية
             if message == "55":
-                reply = "ادخل اسم العامل:"
+                reply = "أدخل اسم العامل:"
             elif message == "88":
-                reply = "ادخل اسم السائق:"
+                reply = "أدخل اسم السائق:"
             elif message == "77":
-                reply = "ادخل اسم المحل:"
+                reply = "أدخل اسم المحل:"
             elif message == "90":
-                reply = "ادخل اسم البضاعة للتأجير:"
+                reply = "أدخل اسم البضاعة للتأجير:"
             return jsonify({"reply": reply})
 
         # أي رسالة أخرى خارج الأرقام المخصصة
-        return "", 200
+        return jsonify({"reply": "مرحبًا! أرسل رقم العملية:\n55 لإضافة عامل\n88 لإضافة سائق\n77 لإضافة محل\n90 لإضافة بضاعة للتأجير"}), 200
 
     # إذا المستخدم في عملية
     process = user_states[user_id]
@@ -65,15 +72,16 @@ def webhook():
             return jsonify({"reply": "أدخل مهنة العامل:"})
         elif "job" not in user_data[user_id]:
             user_data[user_id]["job"] = message
-            return jsonify({"reply": "أدخل رقم العامل:"})
+            return jsonify({"reply": "أدخل رقم العامل (بدون رمز الدولة):"})
         elif "phone" not in user_data[user_id]:
+            if not is_valid_phone(message):
+                return jsonify({"reply": "رقم الهاتف غير صحيح، يرجى إدخاله بشكل صحيح (مثال: 501234567 أو 0501234567)"})
             user_data[user_id]["phone"] = message
-            # إرسال للمشرف
             info = f"طلب إضافة عامل جديد:\nالاسم: {user_data[user_id]['name']}\nالمهنة: {user_data[user_id]['job']}\nرقم الهاتف: {user_data[user_id]['phone']}"
             send_to_admin(info)
             user_states[user_id] = None
             user_data[user_id] = {}
-            return jsonify({"reply": "تم حفظ طلبك وارساله بنجاح للمشرف لإضافته في أقرب وقت ممكن، شكرا لك"})
+            return jsonify({"reply": "تم حفظ طلبك وارساله بنجاح للمشرف لإضافته في أقرب وقت ممكن، شكرا لك 🙏"})
 
     # إضافة سائق
     elif process == "add_driver":
@@ -85,14 +93,16 @@ def webhook():
             return jsonify({"reply": "أدخل وصف وشروط الخدمة (مثلاً: نقل من كذا إلى كذا):"})
         elif "details" not in user_data[user_id]:
             user_data[user_id]["details"] = message
-            return jsonify({"reply": "أدخل رقم هاتفك:"})
+            return jsonify({"reply": "أدخل رقم هاتفك (بدون رمز الدولة):"})
         elif "phone" not in user_data[user_id]:
+            if not is_valid_phone(message):
+                return jsonify({"reply": "رقم الهاتف غير صحيح، يرجى إدخاله بشكل صحيح (مثال: 501234567 أو 0501234567)"})
             user_data[user_id]["phone"] = message
             info = f"طلب إضافة سائق جديد:\nالاسم: {user_data[user_id]['name']}\nالخدمات: {user_data[user_id]['services']}\nالتفاصيل: {user_data[user_id]['details']}\nرقم الهاتف: {user_data[user_id]['phone']}"
             send_to_admin(info)
             user_states[user_id] = None
             user_data[user_id] = {}
-            return jsonify({"reply": "تم حفظ طلبك وارساله للمشرف لإضافته في أقرب وقت ممكن، شكرا لك"})
+            return jsonify({"reply": "تم حفظ طلبك وارساله للمشرف لإضافته في أقرب وقت ممكن، شكرا لك 🙏"})
 
     # إضافة محل
     elif process == "add_shop":
@@ -101,14 +111,16 @@ def webhook():
             return jsonify({"reply": "أدخل نوع المحل:"})
         elif "type" not in user_data[user_id]:
             user_data[user_id]["type"] = message
-            return jsonify({"reply": "أدخل رقم هاتف المحل:"})
+            return jsonify({"reply": "أدخل رقم هاتف المحل (بدون رمز الدولة):"})
         elif "phone" not in user_data[user_id]:
+            if not is_valid_phone(message):
+                return jsonify({"reply": "رقم الهاتف غير صحيح، يرجى إدخاله بشكل صحيح (مثال: 501234567 أو 0501234567)"})
             user_data[user_id]["phone"] = message
             info = f"طلب إضافة محل جديد:\nالاسم: {user_data[user_id]['name']}\nالنوع: {user_data[user_id]['type']}\nرقم الهاتف: {user_data[user_id]['phone']}"
             send_to_admin(info)
             user_states[user_id] = None
             user_data[user_id] = {}
-            return jsonify({"reply": "تم حفظ طلبك وارساله للمشرف لإضافته في أقرب وقت ممكن، شكرا لك"})
+            return jsonify({"reply": "تم حفظ طلبك وارساله للمشرف لإضافته في أقرب وقت ممكن، شكرا لك 🙏"})
 
     # إضافة بضاعة تأجير
     elif process == "add_rent":
@@ -117,16 +129,18 @@ def webhook():
             return jsonify({"reply": "أدخل وصف البضاعة والشروط:"})
         elif "details" not in user_data[user_id]:
             user_data[user_id]["details"] = message
-            return jsonify({"reply": "أدخل رقم هاتفك:"})
+            return jsonify({"reply": "أدخل رقم هاتفك (بدون رمز الدولة):"})
         elif "phone" not in user_data[user_id]:
+            if not is_valid_phone(message):
+                return jsonify({"reply": "رقم الهاتف غير صحيح، يرجى إدخاله بشكل صحيح (مثال: 501234567 أو 0501234567)"})
             user_data[user_id]["phone"] = message
             info = f"طلب إضافة بضاعة للتأجير:\nالبضاعة: {user_data[user_id]['item']}\nالوصف والشروط: {user_data[user_id]['details']}\nرقم الهاتف: {user_data[user_id]['phone']}"
             send_to_admin(info)
             user_states[user_id] = None
             user_data[user_id] = {}
-            return jsonify({"reply": "تم حفظ طلبك وارساله للمشرف لإضافته في أقرب وقت ممكن، شكرا لك"})
+            return jsonify({"reply": "تم حفظ طلبك وارساله للمشرف لإضافته في أقرب وقت ممكن، شكرا لك 🙏"})
 
-    return "", 200
+    return jsonify({"reply": "حدث خطأ غير متوقع. يرجى إعادة المحاولة."}), 200
 
 if __name__ == "__main__":
     app.run(port=5000)
