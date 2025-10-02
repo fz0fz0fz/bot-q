@@ -5,6 +5,7 @@ from config import WASENDER_API_KEY, WASENDER_BASE_URL, ADMIN_PHONE
 logger = logging.getLogger(__name__)
 
 def send_message(to_number: str, message: str, timeout: int = 30) -> dict:
+    # استخدم endpoint الصحيح
     url = f"{WASENDER_BASE_URL}/send-message"
     headers = {
         "Authorization": f"Bearer {WASENDER_API_KEY}",
