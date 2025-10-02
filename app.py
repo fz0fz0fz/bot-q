@@ -5,6 +5,7 @@ from flask import Flask, request, jsonify
 from config import ADMIN_PHONE, SERVICE_MESSAGES
 from send_utils import send_message
 
+# إعداد السجلات
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -52,37 +53,39 @@ def webhook():
         message_obj = messages.get("message", {})
         message = message_obj.get("conversation", "").strip()
 
+        # تحويل الأرقام العربية إلى إنجليزية
+        def convert_arabic_to_english_numbers(text):
+            arabic_nums = "٠١٢٣٤٥٦٧٨٩"
+            english_nums = "0123456789"
+            trans = str.maketrans(arabic_nums, english_nums)
+            return text.translate(trans)
+
+        message = convert_arabic_to_english_numbers(message)
+
         if not user_id or not message:
             return jsonify({"error": "Invalid message data"}), 400
 
         logger.info(f"Message from {user_id}: {message}")
 
-        # الرد حسب رقم الخدمة
-        response = None
+        phone = user_id.split("@")[0] if "@" in user_id else user_id
+
+        # هل هي رسالة رقم خدمة؟
         if message in SERVICE_MESSAGES:
             response = SERVICE_MESSAGES[message]["request_message"]
-        else:
-            # أي رقم غير مدعوم يرد عليه WhatsAuto فقط ولا يرد البوت
-            return jsonify({"status": "ignored"}), 200
-
-        # إذا أرسل العميل التفاصيل بعد رقم الخدمة (مثلاً بعد ٦٠ يرسل كل البيانات دفعة واحدة)
-        # نحدد ذلك بأن الرسالة ليست رقم خدمة، بل نص طويل (يتم تحويله للإدارة)
-        # نتحقق هل الرسالة السابقة كانت رقم من الخدمة (يمكنك تحسين ذلك لاحقًا بحفظ آخر حالة للمستخدم في الذاكرة إذا أردت).
-        # هنا سنفترض أن المستخدم يرسل الرقم ثم مباشرة التفاصيل في رسالة أخرى.
-
-        # إذا كانت الرسالة نص طويل وليست رقم خدمة، نرسلها للإدارة
-        if response is None and len(message) > 1:
-            # أرسل للإدارة
-            send_result = send_message(ADMIN_PHONE, f"رسالة جديدة من العميل ({user_id}):\n{message}")
-            response = "✅ تم تحويل رسالتك للإدارة وسيتم إضافتها في أقرب وقت. شكرًا لك!"
-
-        if response:
-            phone = user_id.split("@")[0] if "@" in user_id else user_id
             send_result = send_message(phone, response)
             if send_result.get("success"):
                 logger.info(f"✅ Response sent to {phone}")
             else:
                 logger.error(f"❌ Failed to send response: {send_result}")
+        else:
+            # رسالة تفاصيل: أرسلها للإدارة وارسل للعميل تأكيد
+            send_result_admin = send_message(ADMIN_PHONE, f"رسالة جديدة من العميل ({user_id}):\n{message}")
+            confirmation_msg = "✅ تم تحويل رسالتك للإدارة وسيتم إضافتها في أقرب وقت. شكرًا لك!"
+            send_result_user = send_message(phone, confirmation_msg)
+            if send_result_user.get("success"):
+                logger.info(f"✅ Confirmation sent to {phone}")
+            else:
+                logger.error(f"❌ Failed to send confirmation: {send_result_user}")
 
         return jsonify({"status": "processed"}), 200
 
