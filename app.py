@@ -84,12 +84,16 @@ def webhook():
         # العميل ينتظر بيانات خدمة
         if current_state != BotState.INITIAL.value:
             if message.isdigit():
+                num = int(message)
                 if message in SERVICE_MESSAGES:
                     state_manager.reset_user_state(user_id)
                     handle_service_request(user_id, phone, message)
-                else:
+                elif 0 <= num <= 150:
                     state_manager.reset_user_state(user_id)
-                    logger.info(f"❌ رقم غير مدعوم أثناء انتظار البيانات من {phone}: {message}")
+                    logger.info(f"❌ رقم غير مدعوم (من 0 إلى 150) أثناء انتظار البيانات من {phone}: {message}")
+                else:
+                    # رقم خارج النطاق يعامل كبيانات خدمة
+                    handle_service_data(user_id, phone, message, current_state)
             else:
                 # أي رسالة ليست رقم فقط تعتبر بيانات وتُرسل للإدارة
                 handle_service_data(user_id, phone, message, current_state)
