@@ -1,11 +1,4 @@
 
-Tool Call
-Function Name:
-Write
-Arguments:
-file_path:
-/home/user/app.py
-content:
 import os
 import time
 import logging
