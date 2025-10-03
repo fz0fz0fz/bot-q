@@ -72,8 +72,9 @@ def webhook():
 
         phone = user_id.split("@")[0] if "@" in user_id else user_id
 
-        current_state = state_manager.get_user_state(user_id)
+        # تنظيف الحالات المنتهية الصلاحية أولاً
         state_manager.cleanup_expired_states()
+        current_state = state_manager.get_user_state(user_id)
 
         # تجاهل أرقام واتس أوتو (1-15)
         if is_whatsauto_number(message):
@@ -83,21 +84,23 @@ def webhook():
         # العميل ينتظر بيانات خدمة
         if current_state != BotState.INITIAL.value:
             if message.isdigit():
-                state_manager.reset_user_state(user_id)
                 if message in SERVICE_MESSAGES:
+                    state_manager.reset_user_state(user_id)
                     handle_service_request(user_id, phone, message)
                 else:
-                    # رقم غير مدعوم: تجاهله بدون أي رد
+                    state_manager.reset_user_state(user_id)
                     logger.info(f"❌ رقم غير مدعوم أثناء انتظار البيانات من {phone}: {message}")
             else:
-                # أي نص حتى لو كلمة واحدة يعتبر بيانات خدمة ويتم تحويله للإدارة
+                # أي رسالة ليست رقم فقط تعتبر بيانات وتُرسل للإدارة
                 handle_service_data(user_id, phone, message, current_state)
         else:
             # العميل خارج حالة انتظار بيانات خدمة
-            if message in SERVICE_MESSAGES:
-                handle_service_request(user_id, phone, message)
+            if message.isdigit():
+                if message in SERVICE_MESSAGES:
+                    handle_service_request(user_id, phone, message)
+                else:
+                    logger.info(f"❌ رقم غير معروف خارج الحالة: {message} من {phone}")
             else:
-                # رسالة غير معروفة خارج الحالة: تجاهل تماماً بدون إرسال أي شيء
                 logger.info(f"❌ رسالة غير معروفة من {phone} خارج الحالة: {message}")
 
         return jsonify({"status": "processed"}), 200
