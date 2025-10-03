@@ -77,15 +77,26 @@ def webhook():
 
         # الحصول على حالة المستخدم الحالية
         current_state = state_manager.get_user_state(user_id)
-        
+
         # تنظيف الحالات المنتهية الصلاحية
         state_manager.cleanup_expired_states()
+
+        # التحقق من الأرقام التي يجب تجاهلها (1-15 لواتس أوتو)
+        if is_whatsauto_number(message):
+            logger.info(f"🔕 Ignoring WhatsAuto number: {message} from {phone}")
+            return jsonify({"status": "ignored_whatsauto"}), 200
 
         # معالجة الرسائل حسب النوع
         if message in SERVICE_MESSAGES:
             handle_service_request(user_id, phone, message)
         elif current_state != BotState.INITIAL.value:
-            handle_service_data(user_id, phone, message, current_state)
+            # التأكد من أن الرسالة ليست رقم خدمة أخرى
+            if message not in SERVICE_MESSAGES:
+                handle_service_data(user_id, phone, message, current_state)
+            else:
+                # إذا أرسل رقم خدمة جديدة أثناء انتظار البيانات، إعادة تعيين الحالة والبدء بالخدمة الجديدة
+                state_manager.reset_user_state(user_id)
+                handle_service_request(user_id, phone, message)
         else:
             handle_unknown_message(phone, message)
 
@@ -94,6 +105,14 @@ def webhook():
     except Exception as e:
         logger.error(f"❌ Webhook error: {e}", exc_info=True)
         return jsonify({"error": "Internal server error"}), 500
+
+def is_whatsauto_number(message: str) -> bool:
+    """التحقق من أن الرسالة هي رقم من قائمة واتس أوتو (1-15)"""
+    try:
+        number = int(message)
+        return 1 <= number <= 15
+    except ValueError:
+        return False
 
 def handle_service_request(user_id: str, phone: str, service_number: str):
     """معالجة طلب خدمة جديد"""
@@ -104,18 +123,18 @@ def handle_service_request(user_id: str, phone: str, service_number: str):
             BotState(f"waiting_for_{service_number}"), 
             service_number
         )
-        
+
         # إرسال رسالة طلب البيانات
         response = SERVICE_MESSAGES[service_number]["request_message"]
         send_result = send_message(phone, response)
-        
+
         if send_result.get("success"):
             logger.info(f"✅ Service request sent to {phone} for service {service_number}")
         else:
             logger.error(f"❌ Failed to send service request: {send_result}")
             # إعادة تعيين الحالة في حالة فشل الإرسال
             state_manager.reset_user_state(user_id)
-            
+
     except Exception as e:
         logger.error(f"❌ Error handling service request: {e}")
         state_manager.reset_user_state(user_id)
@@ -128,15 +147,15 @@ def handle_service_data(user_id: str, phone: str, message: str, current_state: s
             logger.error(f"❌ Invalid service number for user {user_id}")
             state_manager.reset_user_state(user_id)
             return
-        
+
         service_info = SERVICE_MESSAGES[service_number]
         service_name = service_info["name"]
-        
+
         # إرسال البيانات للإدارة
         send_result_admin = send_admin_notification(
             service_name, service_number, user_id, message
         )
-        
+
         # إرسال تأكيد للعميل
         confirmation_msg = (
             f"✅ تم استلام بياناتك بنجاح!\n\n"
@@ -145,17 +164,18 @@ def handle_service_data(user_id: str, phone: str, message: str, current_state: s
             f"🔹 سيتم إضافة البيانات في أقرب وقت\n\n"
             f"شكراً لك ! 🌹"
         )
-        
+
         send_result_user = send_message(phone, confirmation_msg)
-        
-        # إعادة تعيين حالة المستخدم
+
+        # إعادة تعيين حالة المستخدم بعد إرسال البيانات بنجاح
         state_manager.reset_user_state(user_id)
-        
+
         if send_result_user.get("success"):
             logger.info(f"✅ Service data processed successfully for {phone} - service {service_number}")
+            logger.info(f"🔄 User state reset for {user_id} after successful data submission")
         else:
             logger.error(f"❌ Failed to send confirmation: {send_result_user}")
-            
+
     except Exception as e:
         logger.error(f"❌ Error handling service data: {e}")
         state_manager.reset_user_state(user_id)
@@ -164,7 +184,7 @@ def handle_unknown_message(phone: str, message: str):
     """معالجة الرسائل غير المعروفة"""
     try:
         logger.info(f"🔕 Unknown message from {phone}: {message}")
-        
+
         # رسالة المساعدة
         help_message = (
             "مرحباً بك في خدمات القرين! 👋\n\n"
@@ -172,18 +192,17 @@ def handle_unknown_message(phone: str, message: str):
             "🌟 40 - للأسر المنتجة\n"
             "🚗 50 - لخدمات السائقين\n"
             "👷 60 - لخدمات العمال\n"
-            "📦 70 - لخدمات التأجير\n"
             "💡 100 - للاقتراحات والملاحظات\n\n"
             "📱 يرجى إرسال الرقم فقط للبدء"
         )
-        
+
         send_result = send_message(phone, help_message)
-        
+
         if send_result.get("success"):
             logger.info(f"✅ Help message sent to {phone}")
         else:
             logger.error(f"❌ Failed to send help message: {send_result}")
-            
+
     except Exception as e:
         logger.error(f"❌ Error handling unknown message: {e}")
 
