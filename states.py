@@ -15,7 +15,6 @@ class UserStateManager:
 
     def __init__(self):
         self.user_states: Dict[str, Dict] = {}
-        self.state_timeout = 1800  # 30 دقيقة timeout
 
     def set_user_state(self, user_id: str, state: BotState, service_number: str = None):
         """تعيين حالة المستخدم"""
@@ -30,12 +29,6 @@ class UserStateManager:
         user_data = self.user_states.get(user_id)
         if not user_data:
             return BotState.INITIAL.value
-
-        # التحقق من انتهاء صلاحية الحالة
-        if time.time() - user_data["timestamp"] > self.state_timeout:
-            self.reset_user_state(user_id)
-            return BotState.INITIAL.value
-
         return user_data["state"]
 
     def get_user_service_number(self, user_id: str) -> Optional[str]:
@@ -49,18 +42,9 @@ class UserStateManager:
             del self.user_states[user_id]
 
     def cleanup_expired_states(self):
-        """تنظيف الحالات المنتهية الصلاحية"""
-        current_time = time.time()
-        expired_users = []
-
-        for user_id, user_data in self.user_states.items():
-            if current_time - user_data["timestamp"] > self.state_timeout:
-                expired_users.append(user_id)
-
-        for user_id in expired_users:
-            del self.user_states[user_id]
+        """تنظيف الحالات المنتهية الصلاحية (اختياري إذا أردت حذف الحالات القديمة يدوياً)"""
+        pass  # لم يعد هناك حاجة لتنظيف بناءً على الوقت
 
     def get_active_users_count(self) -> int:
         """الحصول على عدد المستخدمين النشطين"""
-        self.cleanup_expired_states()
         return len(self.user_states)
