@@ -1,4 +1,3 @@
-
 import os
 import time
 import logging
@@ -86,19 +85,26 @@ def webhook():
             logger.info(f"🔕 Ignoring WhatsAuto number: {message} from {phone}")
             return jsonify({"status": "ignored_whatsauto"}), 200
 
-        # معالجة الرسائل حسب النوع
-        if message in SERVICE_MESSAGES:
-            handle_service_request(user_id, phone, message)
-        elif current_state != BotState.INITIAL.value:
-            # التأكد من أن الرسالة ليست رقم خدمة أخرى
-            if message not in SERVICE_MESSAGES:
-                handle_service_data(user_id, phone, message, current_state)
-            else:
-                # إذا أرسل رقم خدمة جديدة أثناء انتظار البيانات، إعادة تعيين الحالة والبدء بالخدمة الجديدة
+        # منطق الحالات المعدل
+        if current_state != BotState.INITIAL.value:
+            # إذا أرسل أي رقم أثناء انتظار البيانات، نخرج من الحالة
+            if message.isdigit():
                 state_manager.reset_user_state(user_id)
-                handle_service_request(user_id, phone, message)
+                if message in SERVICE_MESSAGES:
+                    # رقم خدمة: نبدأ معه مباشرة
+                    handle_service_request(user_id, phone, message)
+                else:
+                    # رقم غير مدعوم: تجاهله أو أرسل رسالة مساعدة
+                    handle_unknown_message(phone, message)
+            else:
+                # إذا لم يكن رقم، اعتبره بيانات خدمة
+                handle_service_data(user_id, phone, message, current_state)
         else:
-            handle_unknown_message(phone, message)
+            # في حالة عادية (بدون انتظار بيانات خدمة)
+            if message in SERVICE_MESSAGES:
+                handle_service_request(user_id, phone, message)
+            else:
+                handle_unknown_message(phone, message)
 
         return jsonify({"status": "processed"}), 200
 
