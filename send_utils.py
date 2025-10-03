@@ -25,7 +25,7 @@ def send_message(to_number: str, message: str, timeout: int = 30) -> dict:
         "to": to_number,
         "text": message
     }
-    
+
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=timeout)
         response.raise_for_status()
