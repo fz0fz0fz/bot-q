@@ -1,3 +1,11 @@
+
+Tool Call
+Function Name:
+Write
+Arguments:
+file_path:
+/home/user/app.py
+content:
 import os
 import time
 import logging
@@ -81,48 +89,63 @@ def webhook():
             logger.info(f"🔕 Ignoring WhatsAuto number: {message} from {phone}")
             return jsonify({"status": "ignored_whatsauto"}), 200
 
-        # العميل ينتظر بيانات خدمة
+        # العميل في حالة انتظار بيانات خدمة
         if current_state != BotState.INITIAL.value:
             if message.isdigit():
                 num = int(message)
-                # إذا كان الرقم خدمة جديدة (مثل 40, 50, 60, 100)
+                # إذا كان الرقم خدمة جديدة (40, 50, 60, 100)
                 if message in SERVICE_MESSAGES:
-                    state_manager.reset_user_state(user_id) # الخروج من الحالة الحالية
-                    handle_service_request(user_id, phone, message) # الدخول في حالة جديدة
-                # إذا كان الرقم بين 0 و 150 (وليس خدمة جديدة)
+                    state_manager.reset_user_state(user_id)  # الخروج من الحالة الحالية
+                    handle_service_request(user_id, phone, message)  # الدخول في حالة جديدة
+                    logger.info(f"🔄 User {phone} switched from state {current_state} to service {message}")
+                # إذا كان الرقم بين 0 و 150 (خروج من الحالة الحالية)
                 elif 0 <= num <= 150:
-                    state_manager.reset_user_state(user_id) # الخروج من الحالة الحالية فقط
+                    state_manager.reset_user_state(user_id)  # الخروج من الحالة الحالية فقط
                     logger.info(f"✅ User {phone} exited the current state by sending {message}")
+                    # تنبيه السيرفر (لتنشيط Render المجاني)
+                    wake_up_server()
                 # إذا كان الرقم خارج نطاق 0-150، يعامل كبيانات للخدمة الحالية
                 else:
                     handle_service_data(user_id, phone, message, current_state)
             else:
-                # أي رسالة ليست رقم فقط تعتبر بيانات وتُرسل للإدارة
+                # أي رسالة ليست رقم تعتبر بيانات وتُرسل للإدارة
                 handle_service_data(user_id, phone, message, current_state)
         else:
             # العميل خارج حالة انتظار بيانات خدمة
-            if message.isdigit():
-                if message in SERVICE_MESSAGES:
-                    handle_service_request(user_id, phone, message)
-                else:
-                    logger.info(f"❌ رقم غير معروف خارج الحالة: {message} من {phone}")
+            if message.isdigit() and message in SERVICE_MESSAGES:
+                handle_service_request(user_id, phone, message)
             else:
-                logger.info(f"❌ رسالة غير معروفة من {phone} خارج الحالة: {message}")
+                # أي رسالة غير معروفة خارج الحالة - تنبيه السيرفر
+                logger.info(f"❓ Unknown message from {phone} outside service state: {message}")
+                wake_up_server()
 
         return jsonify({"status": "processed"}), 200
 
     except Exception as e:
         logger.error(f"❌ Webhook error: {e}", exc_info=True)
+        # تنبيه السيرفر في حالة الخطأ أيضاً
+        wake_up_server()
         return jsonify({"error": "Internal server error"}), 500
 
 def is_whatsauto_number(message: str) -> bool:
+    """فحص إذا كان الرقم من أرقام واتس أوتو (1-15)"""
     try:
         number = int(message)
         return 1 <= number <= 15
     except ValueError:
         return False
 
+def wake_up_server():
+    """تنبيه السيرفر لتنشيطه (مفيد لخطة Render المجانية)"""
+    try:
+        logger.info("⚡ Server wake-up signal triggered")
+        # يمكنك إضافة أي عملية بسيطة هنا لتنشيط السيرفر
+        pass
+    except Exception as e:
+        logger.error(f"❌ Wake-up server error: {e}")
+
 def handle_service_request(user_id: str, phone: str, service_number: str):
+    """معالجة طلب خدمة جديدة"""
     try:
         state_manager.set_user_state(
             user_id, 
@@ -141,6 +164,7 @@ def handle_service_request(user_id: str, phone: str, service_number: str):
         state_manager.reset_user_state(user_id)
 
 def handle_service_data(user_id: str, phone: str, message: str, current_state: str):
+    """معالجة بيانات الخدمة المرسلة من المستخدم"""
     try:
         service_number = state_manager.get_user_service_number(user_id)
         if not service_number or service_number not in SERVICE_MESSAGES:
@@ -151,9 +175,12 @@ def handle_service_data(user_id: str, phone: str, message: str, current_state: s
         service_info = SERVICE_MESSAGES[service_number]
         service_name = service_info["name"]
 
+        # إرسال البيانات للإدارة
         send_result_admin = send_admin_notification(
             service_name, service_number, user_id, message
         )
+
+        # رسالة تأكيد للمستخدم
         confirmation_msg = (
             f"✅ تم استلام بياناتك بنجاح!\n\n"
             f"🔹 الخدمة: {service_name}\n"
@@ -162,6 +189,8 @@ def handle_service_data(user_id: str, phone: str, message: str, current_state: s
             f"شكراً لك ! 🌹"
         )
         send_result_user = send_message(phone, confirmation_msg)
+        
+        # إعادة تعيين حالة المستخدم بعد نجاح إرسال البيانات
         state_manager.reset_user_state(user_id)
 
         if send_result_user.get("success"):
@@ -169,6 +198,7 @@ def handle_service_data(user_id: str, phone: str, message: str, current_state: s
             logger.info(f"🔄 User state reset for {user_id} after successful data submission")
         else:
             logger.error(f"❌ Failed to send confirmation: {send_result_user}")
+            
     except Exception as e:
         logger.error(f"❌ Error handling service data: {e}")
         state_manager.reset_user_state(user_id)
@@ -183,11 +213,13 @@ def stats():
 
 @app.errorhandler(404)
 def not_found(error):
+    wake_up_server()  # تنبيه السيرفر عند 404
     return jsonify({"error": "Endpoint not found"}), 404
 
 @app.errorhandler(500)
 def internal_error(error):
     logger.error(f"❌ Internal server error: {error}")
+    wake_up_server()  # تنبيه السيرفر عند خطأ 500
     return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == "__main__":
