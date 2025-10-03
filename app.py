@@ -90,6 +90,7 @@ def webhook():
                     # رقم غير مدعوم: تجاهله بدون أي رد
                     logger.info(f"❌ رقم غير مدعوم أثناء انتظار البيانات من {phone}: {message}")
             else:
+                # أي نص حتى لو كلمة واحدة يعتبر بيانات خدمة ويتم تحويله للإدارة
                 handle_service_data(user_id, phone, message, current_state)
         else:
             # العميل خارج حالة انتظار بيانات خدمة
